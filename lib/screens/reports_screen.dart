@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../services/supabase_service.dart';
+import '../services/sales_stats.dart';
 import '../services/date_utils.dart';
 import '../services/responsive.dart';
 import '../services/store_config.dart';
@@ -102,53 +103,19 @@ class _ReportsScreenState
       return true;
     }).toList();
 
-    double total = 0;
-    double efectivo = 0;
-    double yappy = 0;
-    double pendiente = 0;
-    double r1 = 0;
-    double r2 = 0;
-    Map<String, int> productCounter = {};
-    String bestProduct = 'Ninguno';
-    int bestCount = 0;
-
-    for (var sale in salesData) {
-      String product = sale['product'] ?? '';
-      if (product.isNotEmpty) {
-        productCounter[product] = (productCounter[product] ?? 0) + 1;
-        if (productCounter[product]! > bestCount) {
-          bestCount = productCounter[product]!;
-          bestProduct = product;
-        }
-      }
-
-      final amount = (sale['total'] as num).toDouble();
-      total += amount;
-
-      if (sale['payment_method'] == 'Efectivo') {
-        efectivo += amount;
-      }
-      if (sale['payment_method'] == 'Yappy') {
-        yappy += amount;
-      }
-      if (sale['payment_method'] == 'Pendiente') {
-        pendiente += amount;
-        if (sale['recreo'] == 'Recreo 1') r1 += amount;
-        if (sale['recreo'] == 'Recreo 2') r2 += amount;
-      }
-    }
+    final stats = computeSalesStats(salesData);
 
     setState(() {
       this.sales = salesData;
-      totalSales = total;
-      efectivoTotal = efectivo;
-      yappyTotal = yappy;
-      pendienteTotal = pendiente;
-      recreo1Total = r1;
-      recreo2Total = r2;
-      totalTransactions = salesData.length;
-      topProduct = bestProduct;
-      topProductCount = bestCount;
+      totalSales = stats.total;
+      efectivoTotal = stats.efectivo;
+      yappyTotal = stats.yappy;
+      pendienteTotal = stats.pendiente;
+      recreo1Total = stats.recreo1;
+      recreo2Total = stats.recreo2;
+      totalTransactions = stats.totalTransactions;
+      topProduct = stats.topProduct;
+      topProductCount = stats.topProductCount;
     });
   }
 

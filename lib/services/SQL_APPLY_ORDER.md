@@ -24,6 +24,8 @@ sin aviso.
 | 10 | `login_rate_limit.sql` | `verify_student` con rate limit y `needs_activation`, `set_student_qr_token` con el mismo contador |
 | 11 | `student_activation.sql` | `admin_generate_activation`, `activate_student`, `is_admin` estricta, drop de los RPC viejos, revoke de `upsert_pending` |
 | 12 | `drop_legacy_overloads.sql` | Borra las sobrecargas viejas sin `p_token` de `student_checkout`, `submit_payment_capture` y `get_student_captures`. Idempotente |
+| 13 | `sale_checkout_atomic.sql` | `sales.client_ref` + índice y `sale_checkout`: venta + stock + deuda en una transacción, idempotente |
+| 14 | `chat_messages.sql` | Tabla `messages` (chat alumno ↔ kiosco con adjuntos), RLS de admin y los RPC del alumno (`send_student_message`, `get_student_messages`, `mark_student_messages_read`) |
 | — | `first_login.sql` | Nada: retirado. Correrlo ya no recrea el flujo viejo |
 | — | `upsert_pending.sql` | Nada: función revocada |
 
@@ -39,6 +41,13 @@ sin aviso.
 | `create_admin_user` | `fix_admin_roles.sql` | `supabase_security.sql` |
 | `get_student_initial_code`, `set_student_password` | no debe existir | `first_login.sql` (ahora dropea en vez de crear) |
 | `upsert_pending` | revocada | `upsert_pending.sql` |
+
+## La app nueva depende de `sale_checkout`
+
+`lib/screens/sales_screen.dart` cobra con `public.sale_checkout` (archivo
+`sale_checkout_atomic.sql`). **Si se instala el APK sin haber corrido ese
+archivo, la pantalla de Ventas no puede cobrar nada** y devuelve
+`Could not find the function public.sale_checkout`. Correr el SQL primero.
 
 ## Estado del servidor
 

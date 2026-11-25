@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../services/supabase_service.dart';
 import '../services/date_utils.dart';
+import '../services/client_ref.dart';
 import '../services/product_icons.dart' show resolveProductIcon;
 import '../services/local_cache_service.dart';
 import '../services/responsive.dart';
@@ -48,6 +49,16 @@ class _SalesScreenState
   String? _plusOneId;
   Timer? _plusOneTimer;
   bool _plusOneCheck = false;
+
+  /// Evita que dos confirmaciones seguidas del mismo carrito inserten la venta
+  /// dos veces (doble tap, o reabrir el sheet antes de que termine el await).
+  bool _submitting = false;
+
+  /// Referencia de idempotencia del carrito actual, y la huella del carrito
+  /// al que corresponde. Se reusa en los reintentos y se descarta cuando el
+  /// operador modifica el carrito.
+  String? _clientRef;
+  String? _clientRefSignature;
 
   IconData _productIcon(Map<String, dynamic> product) =>
       resolveProductIcon(product);
@@ -339,6 +350,8 @@ class _SalesScreenState
   // =====================================================
 
   Future<void> completeSale() async {
+    if (_submitting) return;
+    _submitting = true;
     try {
       if (selectedStudent == null ||
           cart.isEmpty) {
@@ -355,10 +368,8 @@ class _SalesScreenState
         return;
       }
 
-      final currentStudent = selectedStudent;
       final currentStudentId = selectedStudentId;
       final currentPaymentMethod = paymentMethod;
-      final currentTotal = total;
       final cartSnapshot = cart.map((e) => Map<String, dynamic>.from(e)).toList();
 
       final now = DateTime.now();
@@ -384,55 +395,65 @@ class _SalesScreenState
       // Un cobro en el mostrador ya esta pago: paid_at se setea salvo
       // que la venta sea fiado. Sin esto, una venta en efectivo queda
       // con paid_at NULL y los reportes la muestran como impaga.
-      final isFiado = currentPaymentMethod.toLowerCase().trim() == 'pendiente';
-      final soldAt = DateTime.now().toIso8601String();
-
-      final saleRows = cartSnapshot.map((item) {
-        return {
-          'student_id': currentStudentId ?? '',
-          'product_id': item['id'],
-          'quantity': item['quantity'],
-          'total': (item['price'] as num).toDouble() * item['quantity'],
-          'payment_method': currentPaymentMethod,
-          'paid_at': isFiado ? null : soldAt,
-          'prepared_at': soldAt,
-          'date': toISODate(now),
-          'time': '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
-          'recreo': recreo,
-        };
-      }).toList();
-
-      await SupabaseService.instance.insertSalesBatch(saleRows);
-
-      for (var item in cartSnapshot) {
-        await SupabaseService.instance
-            .updateProductStock(
-          item['id'],
-          (item['stock'] as int) -
-              (item['quantity'] as int),
-        );
+      if (currentStudentId == null || currentStudentId.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('El alumno seleccionado no tiene un ID válido'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
       }
 
-      if (isFiado) {
-        await SupabaseService.instance
-            .insertPending({
-          'student_id': currentStudentId,
-          'student': currentStudent,
-          'amount': currentTotal,
-          'created_at': soldAt,
-        });
-      }
+      final soldAt = DateTime.now();
+      final soldDate = toISODate(soldAt);
+      final soldTime =
+          '${soldAt.hour.toString().padLeft(2, '0')}:${soldAt.minute.toString().padLeft(2, '0')}';
+
+      // Una sola llamada al servidor: venta + stock + deuda en una
+      // transaccion. Reintentar con la misma referencia es idempotente.
+      final signature = cartSignature(cartSnapshot);
+      final result = await SupabaseService.instance.saleCheckout(
+        clientRef: _clientRefFor(signature),
+        studentId: currentStudentId,
+        paymentMethod: currentPaymentMethod,
+        recreo: recreo,
+        date: soldDate,
+        time: soldTime,
+        cartItems: cartSnapshot
+            .map((item) => {
+                  'product_id': item['id'],
+                  'quantity': item['quantity'],
+                })
+            .toList(),
+      );
+
+      final alreadyRegistered = result['status'] == 'duplicate';
+      _clientRef = null;
+      _clientRefSignature = null;
 
       if (mounted) {
         setState(() {
-          cart.clear();
-          total = 0;
+          // Solo vaciar si el carrito sigue siendo el que se acaba de cobrar.
+          // Si el operador armo otro mientras corria el insert, borrarlo seria
+          // perder una venta en silencio.
+          if (_cartMatchesSnapshot(cartSnapshot)) {
+            cart.clear();
+            total = 0;
+          }
         });
 
         ScaffoldMessenger.of(context)
             .showSnackBar(
-          const SnackBar(
-            content: Text('Venta completada'),
+          SnackBar(
+            content: Text(
+              alreadyRegistered
+                  ? 'Esa venta ya estaba registrada'
+                  : 'Venta completada',
+            ),
+            backgroundColor: alreadyRegistered ? Colors.orange : null,
           ),
         );
       }
@@ -446,7 +467,33 @@ class _SalesScreenState
           ),
         );
       }
+    } finally {
+      _submitting = false;
     }
+  }
+
+  /// True si el carrito actual es exactamente el que se acaba de cobrar.
+  bool _cartMatchesSnapshot(List<Map<String, dynamic>> snapshot) {
+    if (cart.length != snapshot.length) return false;
+    final snapshotQty = <dynamic, dynamic>{
+      for (final item in snapshot) item['id']: item['quantity'],
+    };
+    for (final item in cart) {
+      if (snapshotQty[item['id']] != item['quantity']) return false;
+    }
+    return true;
+  }
+
+  /// Reusa la referencia de operacion mientras el carrito no cambie. Si el
+  /// operador toca el carrito, la referencia vieja ya no describe lo que va a
+  /// cobrar y corresponde generar otra.
+  String _clientRefFor(String signature) {
+    if (_clientRef != null && _clientRefSignature == signature) {
+      return _clientRef!;
+    }
+    _clientRef = newClientRef();
+    _clientRefSignature = signature;
+    return _clientRef!;
   }
 
   StreamSubscription? _studentsSub;

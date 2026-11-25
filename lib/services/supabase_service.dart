@@ -383,6 +383,39 @@ class SupabaseService {
     await _client.from('sales').insert(sales);
   }
 
+  /// Cobra un carrito completo en UNA transaccion del servidor: inserta las
+  /// ventas, decrementa stock y, si es fiado, acumula la deuda.
+  ///
+  /// `clientRef` hace la operacion idempotente: reintentar con la misma
+  /// referencia no duplica la venta (cubre el timeout donde el commit ocurrio
+  /// pero la respuesta no llego).
+  ///
+  /// Devuelve `{'status': 'ok'|'duplicate', 'total': num}`.
+  Future<Map<String, dynamic>> saleCheckout({
+    required String clientRef,
+    required String studentId,
+    required String paymentMethod,
+    required String recreo,
+    required String date,
+    required String time,
+    required List<Map<String, dynamic>> cartItems,
+  }) async {
+    final result = await _client.rpc(
+      'sale_checkout',
+      params: {
+        'p_client_ref': clientRef,
+        'p_student_id': studentId,
+        'p_payment_method': paymentMethod,
+        'p_recreo': recreo,
+        'p_date': date,
+        'p_time': time,
+        'p_cart_items': cartItems,
+      },
+    );
+    if (result is Map) return Map<String, dynamic>.from(result);
+    return const {'status': 'ok'};
+  }
+
   Future<Map<String, dynamic>?> getProductById(dynamic id) async {
     final data = await _client.from('products').select().eq('id', id.toString()).limit(1);
     if (data.isEmpty) return null;
@@ -431,13 +464,13 @@ class SupabaseService {
     });
   }
 
-  Future<void> markStudentRecreoAsPrepared(String studentName, String recreo) async {
+  /// Marca el recreo de un alumno como entregado-y-fiado y acumula la deuda.
+  ///
+  /// Recibe `studentId`, no el nombre: con homonimos, resolver por nombre
+  /// sumaba la deuda al alumno equivocado.
+  Future<void> markStudentRecreoAsPrepared(String studentId, String recreo) async {
     final now = DateTime.now();
     final today = toISODate(now);
-
-    final studentData = await _client.from('students').select('id').eq('name', studentName).limit(1);
-    if (studentData.isEmpty) return;
-    final studentId = studentData.first['id'].toString();
 
     // Solo cuentan las ventas impagas y sin preparar: el update de
     // abajo usa los mismos filtros. Si no, una venta ya cobrada pero
@@ -458,32 +491,35 @@ class SupabaseService {
 
     await _client.from('sales').update({
       'payment_method': 'Pendiente',
-      'prepared_at': now.toIso8601String(),
+      'prepared_at': now.toUtc().toIso8601String(),
     }).eq('student_id', studentId).eq('date', today).eq('recreo', recreo).isFilter('prepared_at', null).isFilter('paid_at', null);
 
     if (total > 0) {
       await insertPending({
-        'student': studentName,
         'student_id': studentId,
         'amount': total,
-        'created_at': now.toIso8601String(),
+        'created_at': now.toUtc().toIso8601String(),
       });
     }
   }
 
-  Future<void> markStudentRecreoAsPaid(String studentName, String recreo, String paymentMethod) async {
+  /// Marca como pagadas las ventas impagas de un alumno en un recreo.
+  ///
+  /// Recibe `studentId`, no el nombre (mismo motivo que en prepared).
+  Future<void> markStudentRecreoAsPaid(String studentId, String recreo, String paymentMethod) async {
     final now = DateTime.now();
     final today = toISODate(now);
 
-    final studentData = await _client.from('students').select('id').eq('name', studentName).limit(1);
-    if (studentData.isEmpty) return;
-    final studentId = studentData.first['id'].toString();
-
     await _client.from('sales').update({
       'payment_method': paymentMethod,
-      'paid_at': now.toIso8601String(),
-      'prepared_at': now.toIso8601String(),
-    }).eq('student_id', studentId).eq('date', today).eq('recreo', recreo);
+      'paid_at': now.toUtc().toIso8601String(),
+      'prepared_at': now.toUtc().toIso8601String(),
+    }).eq('student_id', studentId).eq('date', today).eq('recreo', recreo)
+        // Sin este filtro se reescribia el método de pago y el paid_at de
+        // ventas YA cobradas (rompiendo el desglose de medios de pago), y se
+        // marcaban como pagados fiados cuya fila de `pending` sigue abierta
+        // -> el kiosco podia cobrar dos veces la misma deuda.
+        .isFilter('paid_at', null);
   }
 
   Stream<int> streamActiveOrdersCount() {
@@ -531,7 +567,7 @@ class SupabaseService {
   Future<int> paySale(dynamic id) async {
     await _client.from('sales').update({
       'payment_method': 'Efectivo',
-      'paid_at': DateTime.now().toIso8601String(),
+      'paid_at': DateTime.now().toUtc().toIso8601String(),
     }).eq('id', id.toString());
     return 1;
   }
@@ -542,29 +578,39 @@ class SupabaseService {
     });
   }
 
-  Future<void> payPendingSales(String studentName, dynamic pendingId) async {
-    final studentData = await _client.from('students').select('id').eq('name', studentName).limit(1);
-    if (studentData.isEmpty) return;
-    final studentId = studentData.first['id'].toString();
+  /// Liquida la deuda de una fila de `pending`.
+  ///
+  /// El alumno sale del propio registro (`student_id`), no del nombre: con
+  /// homonimos, resolver por nombre marcaba como pagadas las ventas de OTRO
+  /// alumno, de forma silenciosa y permanente.
+  Future<void> payPendingSales(dynamic pendingId) async {
+    if (pendingId == null) return;
 
-    // Mark all unpaid pending sales as paid
-    final now = DateTime.now().toIso8601String();
+    final pendingSnap = await _client
+        .from('pending')
+        .select('student_id, amount')
+        .eq('id', pendingId.toString())
+        .limit(1);
+    if (pendingSnap.isEmpty) return;
+
+    final row = pendingSnap.first;
+    final studentId = row['student_id']?.toString();
+    if (studentId == null || studentId.isEmpty) return;
+    final fullAmount = (row['amount'] as num?)?.toDouble() ?? 0;
+
+    // UTC: las columnas son timestamptz y un ISO sin offset se interpreta
+    // con la zona de sesion del servidor (UTC), corriendo la hora 5h.
+    final now = DateTime.now().toUtc().toIso8601String();
+
     await _client.from('sales').update({
       'payment_method': 'Efectivo',
       'paid_at': now,
     }).eq('student_id', studentId).isFilter('paid_at', null).ilike('payment_method', '%pendiente%');
 
-    // Pay the full pending amount
-    if (pendingId != null) {
-      final pendingSnap = await _client.from('pending').select('amount').eq('id', pendingId.toString()).limit(1);
-      if (pendingSnap.isNotEmpty) {
-        final fullAmount = (pendingSnap.first['amount'] as num?)?.toDouble() ?? 0;
-        await _client.from('pending').update({
-          'paid': fullAmount,
-          'paid_at': now,
-        }).eq('id', pendingId.toString());
-      }
-    }
+    await _client.from('pending').update({
+      'paid': fullAmount,
+      'paid_at': now,
+    }).eq('id', pendingId.toString());
   }
 
   Future<List<Map<String, dynamic>>> getSalesByStudent(String studentName, {String? qrToken}) async {
@@ -655,7 +701,14 @@ class SupabaseService {
     final studentData = await _client.from('students').select('id').eq('name', studentName).limit(1);
     if (studentData.isEmpty) return [];
     final studentId = studentData.first['id'].toString();
-    return await _client.from('sales').select('*, products!inner(name)').eq('student_id', studentId).eq('date', today);
+    final data = await _client
+        .from('sales')
+        .select('*, products!inner(name)')
+        .eq('student_id', studentId)
+        .eq('date', today);
+    // Aplanar es obligatorio: la UI lee `product` y `payment_method`. Sin esto
+    // todos los pedidos se mostraban como pagados y con producto "null".
+    return _sortSalesByDateTime(_flattenStudents(data));
   }
 
   // =====================================================
@@ -682,7 +735,7 @@ class SupabaseService {
         'amount': newAmount,
         'paid': 0.0,
         'paid_at': null,
-        'created_at': pending['created_at'] ?? DateTime.now().toIso8601String(),
+        'created_at': pending['created_at'] ?? DateTime.now().toUtc().toIso8601String(),
       });
     } on Exception catch (e) {
       if (e.toString().contains('23505')) {
@@ -721,7 +774,29 @@ class SupabaseService {
 
   Stream<List<Map<String, dynamic>>> streamPendings() {
     _ensureCache();
-    return _client.from('pending').stream(primaryKey: ['id']).order('created_at', ascending: true).map((data) {
+    return _client
+        .from('pending')
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: true)
+        .asyncMap((data) async {
+      // La cache de nombres se llena por un stream de realtime de `students`.
+      // Si esa emision no llego (o realtime no esta activo para la tabla), todo
+      // salia como "Desconocido". Cuando falta algun nombre, se resuelve con una
+      // consulta puntual.
+      final hasMissing = data.any(
+        (d) => !_studentNames.containsKey(d['student_id']?.toString()),
+      );
+      if (hasMissing) {
+        try {
+          final rows = await _client.from('students').select('id, name');
+          _studentNames = {
+            for (final s in rows) s['id'].toString(): s['name'] as String? ?? '',
+          };
+        } catch (_) {
+          // Si falla, se cae al "Desconocido" en vez de romper la pantalla.
+        }
+      }
+
       return data.where((d) {
         final amount = (d['amount'] as num?)?.toDouble() ?? 0;
         final paid = (d['paid'] as num?)?.toDouble() ?? 0;
@@ -780,7 +855,13 @@ class SupabaseService {
   }
 
   Future<List<Map<String, dynamic>>> getAllPending() async {
-    return await _client.from('pending').select('*, students!inner(name)');
+    final data = await _client.from('pending').select('*, students!inner(name)');
+    // Sin aplanar, `p['student']` es siempre null y el export de deudores
+    // muestra "Abonado: 0.00" y "Restante" = deuda completa para todos.
+    for (final row in data) {
+      _flattenStudent(row);
+    }
+    return data;
   }
 
   Future<double> getTotalPending() async {
@@ -809,15 +890,30 @@ class SupabaseService {
       final user = response.user;
       if (user == null) return null;
       final profileData = await _client.from('admin_profiles').select().eq('id', user.id).limit(1);
-      if (profileData.isNotEmpty) {
-        return {
-          'username': profileData.first['username'],
-          'role': 'admin',
-        };
+      if (profileData.isEmpty) {
+        // Autentico en GoTrue pero sin perfil provisionado: no es admin.
+        // Mensaje propio para no disfrazarlo de "contraseña incorrecta", que
+        // dejaria al admin sin ningun diagnostico posible.
+        await _client.auth.signOut();
+        throw Exception(
+          'Tu usuario no tiene perfil de administrador. Contactá al responsable del sistema.',
+        );
       }
-      return {'username': user.email?.split('@').first ?? 'admin', 'role': 'admin'};
+      final profile = profileData.first;
+      final role = (profile['role'] as String?)?.trim() ?? '';
+      return {
+        'username': profile['username'] ?? user.email?.split('@').first ?? 'admin',
+        // El rol tiene que venir del perfil: hardcodearlo dejaba isSuperAdmin
+        // siempre en false y la pantalla de Configuración inalcanzable.
+        'role': role.isEmpty ? 'admin' : role,
+      };
     } on AuthException {
       return null;
+    } on PostgrestException catch (e) {
+      // No sabemos si es admin: cerrar sesion y reportar el error real, en vez
+      // de disfrazar una caida de red como "credenciales incorrectas".
+      await _client.auth.signOut();
+      throw Exception('No se pudo verificar el perfil de administrador: ${e.message}');
     }
   }
 
@@ -869,29 +965,6 @@ class SupabaseService {
     return safeName;
   }
 
-  Future<void> submitPaymentCapture({
-    required String studentId,
-    required String imagePath,
-    required String token,
-    String? message,
-  }) async {
-    await _client.rpc('submit_payment_capture', params: {
-      'p_student_id': studentId,
-      'p_token': token,
-      'p_message': message ?? '',
-      'p_image_path': imagePath,
-    });
-  }
-
-  Future<List<Map<String, dynamic>>> getStudentCaptures(String studentId, {String? qrToken}) async {
-    final res = await _client.rpc('get_student_captures', params: {
-      'p_student_id': studentId,
-      'p_token': qrToken ?? '',
-    });
-    if (res == null) return [];
-    return (res as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-  }
-
   /// Link temporal para un comprobante. Requiere sesion de admin:
   /// el bucket es privado y la policy de storage solo autoriza a
   /// quien pasa is_admin().
@@ -917,20 +990,106 @@ class SupabaseService {
     return '${Env.supabaseUrl}/storage/v1/object/public/product-images/$imagePath';
   }
 
-  Stream<List<Map<String, dynamic>>> streamPaymentCaptures() {
-    _ensureCache();
-    return _client.from('payment_captures').stream(primaryKey: ['id']).order('created_at', ascending: false).map((data) {
-      for (final row in data) {
-        row['student'] = _studentNames[row['student_id']?.toString()] ?? 'Desconocido';
-      }
-      return data;
+  // =====================================================
+  // CHAT ALUMNO <-> KIOSCO
+  // =====================================================
+
+  /// Fuerza la carga de nombres de alumnos. La cache de realtime puede venir
+  /// vacia o morir por un error, y sin nombres el chat muestra ids.
+  Future<void> ensureStudentNames({bool force = false}) async {
+    if (!force && _studentNames.isNotEmpty) return;
+    final rows = await _client.from('students').select('id, name');
+    _studentNames = {
+      for (final s in rows) s['id'].toString(): s['name'] as String? ?? '',
+    };
+  }
+
+  /// Manda un mensaje como alumno. Va por RPC porque el alumno no tiene acceso
+  /// directo a la tabla: solo el `qr_token` lo autoriza.
+  Future<void> sendStudentMessage({
+    required String studentId,
+    required String token,
+    required String body,
+    String? imagePath,
+  }) async {
+    await _client.rpc('send_student_message', params: {
+      'p_student_id': studentId,
+      'p_token': token,
+      'p_body': body,
+      'p_image_path': imagePath,
     });
   }
 
-  Future<void> markPaymentCaptureReviewed(dynamic id) async {
-    await _client.from('payment_captures').update({
-      'status': 'revisado',
-      'reviewed_at': DateTime.now().toIso8601String(),
-    }).eq('id', id.toString());
+  Future<List<Map<String, dynamic>>> getStudentMessages({
+    required String studentId,
+    required String token,
+  }) async {
+    final res = await _client.rpc('get_student_messages', params: {
+      'p_student_id': studentId,
+      'p_token': token,
+      'p_limit': 200,
+    });
+    if (res == null) return [];
+    return (res as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  }
+
+  Future<void> markStudentMessagesRead({
+    required String studentId,
+    required String token,
+  }) async {
+    await _client.rpc('mark_student_messages_read', params: {
+      'p_student_id': studentId,
+      'p_token': token,
+    });
+  }
+
+  /// Hilo completo con el nombre del alumno resuelto. Lado kiosco: Realtime
+  /// sobre `messages`, protegido por la RLS de admin.
+  Stream<List<Map<String, dynamic>>> streamMessages() {
+    _ensureCache();
+    return _client
+        .from('messages')
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: true)
+        .asyncMap((data) async {
+      final hasMissing = data.any(
+        (m) => !_studentNames.containsKey(m['student_id']?.toString()),
+      );
+      if (hasMissing) {
+        try {
+          await ensureStudentNames(force: true);
+        } catch (_) {
+          // Si falla, se muestra "Alumno" en vez de romper el chat.
+        }
+      }
+      return data.map((m) {
+        m['student'] = _studentNames[m['student_id']?.toString()] ?? 'Alumno';
+        return m;
+      }).toList();
+    });
+  }
+
+  Future<void> sendAdminMessage({
+    required String studentId,
+    required String body,
+    String? imagePath,
+  }) async {
+    final trimmed = body.trim();
+    await _client.from('messages').insert({
+      'student_id': studentId,
+      'sender': 'kiosco',
+      'body': trimmed.isEmpty ? null : trimmed,
+      'image_path': imagePath,
+    });
+  }
+
+  /// Marca leidos los mensajes que el alumno mando al kiosco.
+  Future<void> markConversationReadForAdmin(String studentId) async {
+    await _client
+        .from('messages')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('student_id', studentId)
+        .eq('sender', 'alumno')
+        .isFilter('read_at', null);
   }
 }

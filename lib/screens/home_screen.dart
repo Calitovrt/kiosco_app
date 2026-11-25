@@ -8,7 +8,7 @@ import 'students_screen.dart';
 import 'products_screen.dart';
 import 'reports_screen.dart';
 import 'pending_screen.dart';
-import 'payment_captures_screen.dart';
+import 'chat_inbox_screen.dart';
 import 'admin_screen.dart';
 import 'login_screen.dart';
 import 'config_screen.dart';
@@ -68,35 +68,43 @@ class _HomeScreenState
       }
     });
 
-    // Badge de comprobantes + aviso cuando llega uno nuevo.
+    // Badge del chat + aviso cuando el alumno escribe.
     // El primer load no notifica: solo marca lo que ya existia.
-    _capturesSub = SupabaseService.instance.streamPaymentCaptures().listen((data) {
+    _capturesSub = SupabaseService.instance.streamMessages().listen((data) {
       if (!mounted) return;
 
-      final pending = data.where((c) => c['status'] == 'pendiente').length;
+      final unreadStudents = <String>{};
+      for (final m in data) {
+        if (m['sender'] == 'alumno' && m['read_at'] == null) {
+          unreadStudents.add(m['student_id'].toString());
+        }
+      }
+
       final ids = data
-          .map((c) => c['id']?.toString() ?? '')
+          .map((m) => m['id']?.toString() ?? '')
           .where((e) => e.isNotEmpty)
           .toSet();
 
       if (_capturesReady) {
-        final fresh = data.where((c) {
-          final id = c['id']?.toString();
-          return id != null && !_knownCaptureIds.contains(id);
+        final fresh = data.where((m) {
+          final id = m['id']?.toString();
+          return m['sender'] == 'alumno' &&
+              id != null &&
+              !_knownCaptureIds.contains(id);
         }).toList();
 
         if (fresh.isNotEmpty) {
           final names = fresh
-              .map((c) => (c['student'] ?? '').toString())
-              .where((n) => n.isNotEmpty && n != 'Desconocido')
+              .map((m) => (m['student'] ?? '').toString())
+              .where((n) => n.isNotEmpty && n != 'Alumno')
               .toSet()
               .toList();
 
           final text = names.isEmpty
-              ? 'Llegó un nuevo comprobante de pago'
+              ? 'Llegó un mensaje nuevo'
               : names.length == 1
-                  ? '${names.first} subió un comprobante de pago'
-                  : '${names.length} alumnos subieron comprobantes de pago';
+                  ? '${names.first} te escribió'
+                  : '${names.length} alumnos te escribieron';
 
           HapticFeedback.heavyImpact();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -111,7 +119,7 @@ class _HomeScreenState
 
       _knownCaptureIds = ids;
       _capturesReady = true;
-      setState(() => pendingCaptures = pending);
+      setState(() => pendingCaptures = unreadStudents.length);
     });
 
     ThemeProvider.instance.addListener(_refresh);
@@ -292,8 +300,18 @@ class _HomeScreenState
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
-                onTap: () {
+                onTap: () async {
                   Navigator.pop(ctx);
+                  // Cerrar sesion de verdad: sin signOut() el JWT de Supabase
+                  // sigue vivo y persistido, y el "logout" es solo visual.
+                  try {
+                    await SupabaseService.instance.logoutAdmin();
+                  } catch (_) {
+                    // signOut() ya limpio la sesion del dispositivo antes de
+                    // fallar el revoke remoto. Navegar igual: si no, el usuario
+                    // queda en una pantalla autenticada sin sesion.
+                  }
+                  if (!mounted) return;
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -413,7 +431,7 @@ class _HomeScreenState
       const ReportsScreen(),
 
       const PendingScreen(),
-      const PaymentCapturesScreen(),
+      const ChatInboxScreen(),
 
     ];
 
@@ -450,7 +468,7 @@ class _HomeScreenState
                         MaterialPageRoute(builder: (_) => const AdminOrdersScreen()),
                       ),
                       tooltip: 'Pedidos del día',
-                      child: const Icon(LucideIcons.receipt),
+                      child: const Icon(LucideIcons.clipboardList),
                     ),
                   ),
                 ),
@@ -528,9 +546,9 @@ class _HomeScreenState
               ),
               backgroundColor: Colors.red,
               textStyle: const TextStyle(color: Colors.white),
-              child: Icon(LucideIcons.wallet),
+              child: Icon(LucideIcons.messageCircle),
             ),
-            label: 'Pagos',
+            label: 'Mensajes',
           ),
         ],
       ),

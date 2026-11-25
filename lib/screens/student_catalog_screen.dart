@@ -103,8 +103,8 @@ class _StudentCatalogScreenState extends State<StudentCatalogScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(LucideIcons.wallet),
-            tooltip: 'Enviar pago',
+            icon: const Icon(LucideIcons.messageCircle),
+            tooltip: 'Chat con el kiosco',
             onPressed: () {
               Navigator.push(
                 context,

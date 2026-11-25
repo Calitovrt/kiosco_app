@@ -42,12 +42,33 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
   bool studentIsReady(String recreo, String student) =>
       studentSales(recreo, student).every((s) => s['prepared_at'] != null);
 
+  /// ID real del alumno para operar contra la base.
+  ///
+  /// La UI agrupa por nombre por comodidad, pero cobrar o fiar por nombre
+  /// imputa la operacion a otro alumno cuando hay homonimos. Siempre se opera
+  /// con este id.
+  String? _studentIdFor(String recreo, String student) {
+    final rows = studentSales(recreo, student);
+    if (rows.isEmpty) return null;
+    return rows.first['student_id']?.toString();
+  }
+
   IconData _iconFor(String? iconName) {
     if (iconName != null && productIcons.containsKey(iconName)) return productIcons[iconName]!;
     return LucideIcons.shoppingBag;
   }
 
   void _showPaymentOptions(String student, String recreo, double total) {
+    final studentId = _studentIdFor(recreo, student);
+    if (studentId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo identificar al alumno de este pedido'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
@@ -69,7 +90,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () { Navigator.pop(ctx); _markAsPaid(student, recreo, 'Efectivo'); },
+                  onPressed: () { Navigator.pop(ctx); _markAsPaid(studentId, student, recreo, 'Efectivo'); },
                   icon: const Icon(LucideIcons.banknote, size: 18),
                   label: const Text('Efectivo', style: TextStyle(fontSize: 15)),
                   style: ElevatedButton.styleFrom(
@@ -83,7 +104,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () { Navigator.pop(ctx); _markAsPaid(student, recreo, 'Yappy'); },
+                  onPressed: () { Navigator.pop(ctx); _markAsPaid(studentId, student, recreo, 'Yappy'); },
                   icon: const Icon(LucideIcons.smartphone, size: 18),
                   label: const Text('Yappy', style: TextStyle(fontSize: 15)),
                   style: ElevatedButton.styleFrom(
@@ -97,7 +118,7 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () { Navigator.pop(ctx); _markAsPreparedOnly(student, recreo); },
+                  onPressed: () { Navigator.pop(ctx); _markAsPreparedOnly(studentId, student, recreo); },
                   icon: const Icon(LucideIcons.clock, size: 18),
                   label: const Text('Pendiente (fiado)', style: TextStyle(fontSize: 15)),
                   style: ElevatedButton.styleFrom(
@@ -114,16 +135,16 @@ class _AdminOrdersScreenState extends State<AdminOrdersScreen> {
     );
   }
 
-  Future<void> _markAsPaid(String student, String recreo, String paymentMethod) async {
-    await SupabaseService.instance.markStudentRecreoAsPaid(student, recreo, paymentMethod);
+  Future<void> _markAsPaid(String studentId, String student, String recreo, String paymentMethod) async {
+    await SupabaseService.instance.markStudentRecreoAsPaid(studentId, recreo, paymentMethod);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$student — $recreo — Pagó con $paymentMethod'), backgroundColor: Colors.green),
     );
   }
 
-  Future<void> _markAsPreparedOnly(String student, String recreo) async {
-    await SupabaseService.instance.markStudentRecreoAsPrepared(student, recreo);
+  Future<void> _markAsPreparedOnly(String studentId, String student, String recreo) async {
+    await SupabaseService.instance.markStudentRecreoAsPrepared(studentId, recreo);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$student — $recreo marcado como listo (pendiente)'), backgroundColor: Colors.orange),

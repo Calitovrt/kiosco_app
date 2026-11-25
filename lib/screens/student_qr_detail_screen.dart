@@ -206,7 +206,7 @@ class _StudentQrDetailScreenState extends State<StudentQrDetailScreen> {
                             ),
                           ),
                           ...entry.value.map((sale) {
-                            final pendiente = (sale['paymentMethod'] as String? ?? '').toLowerCase().contains('pendiente');
+                            final pendiente = (sale['payment_method'] as String? ?? '').toLowerCase().contains('pendiente');
                             return Card(
                               margin: const EdgeInsets.symmetric(vertical: 3),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

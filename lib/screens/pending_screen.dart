@@ -171,7 +171,7 @@ class _PendingScreenState
     try {
 
       await SupabaseService.instance
-          .payPendingSales(student, id);
+          .payPendingSales(id);
 
       if (mounted) {
         ScaffoldMessenger.of(context)

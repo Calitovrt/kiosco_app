@@ -199,6 +199,86 @@ Future<void> exportPendingToExcel(BuildContext context) async {
   }
 }
 
+/// Una hoja del respaldo, ya resuelta a texto.
+class BackupSheet {
+  const BackupSheet({required this.headers, required this.rows});
+
+  final List<String> headers;
+  final List<List<String>> rows;
+}
+
+/// Arma el contenido del respaldo a partir de las filas crudas que devuelve
+/// SupabaseService.
+///
+/// Es una funcion pura a proposito: el respaldo es el archivo que se abre
+/// cuando ya se perdieron datos, asi que tiene que estar testeado.
+///
+/// Las claves deben coincidir con lo que devuelve el service layer:
+/// `getSales()` y `getAllPendingSales()` aplanan las filas a snake_case
+/// (`product`, `student`, `payment_method`, `paid_at`).
+Map<String, BackupSheet> buildBackupSheets({
+  required List<Map<String, dynamic>> sales,
+  required List<Map<String, dynamic>> students,
+  required List<Map<String, dynamic>> products,
+  required List<Map<String, dynamic>> pending,
+}) {
+  return {
+    'Ventas': BackupSheet(
+      headers: const [
+        'Producto',
+        'Precio',
+        'Cantidad',
+        'Total',
+        'Fecha',
+        'Estudiante',
+        'Método de pago',
+      ],
+      rows: sales.map((s) {
+        final quantity = (s['quantity'] as num?)?.toInt() ?? 0;
+        final total = (s['total'] as num?)?.toDouble() ?? 0;
+        // `sales` guarda el total de la linea, no el precio unitario.
+        final unitPrice = quantity > 0 ? total / quantity : 0;
+        return [
+          (s['product'] ?? '').toString(),
+          unitPrice.toStringAsFixed(2),
+          quantity.toString(),
+          total.toStringAsFixed(2),
+          (s['date'] ?? '').toString(),
+          (s['student'] ?? '').toString(),
+          (s['payment_method'] ?? '').toString(),
+        ];
+      }).toList(),
+    ),
+    'Alumnos': BackupSheet(
+      headers: const ['Nombre'],
+      rows: students.map((s) => [(s['name'] ?? '').toString()]).toList(),
+    ),
+    'Productos': BackupSheet(
+      headers: const ['Nombre', 'Precio', 'Categoría', 'Icono'],
+      rows: products
+          .map((p) => [
+                (p['name'] ?? '').toString(),
+                (p['price'] ?? '').toString(),
+                (p['category'] ?? '').toString(),
+                (p['icon'] ?? '').toString(),
+              ])
+          .toList(),
+    ),
+    'Pendientes': BackupSheet(
+      headers: const ['Estudiante', 'Producto', 'Monto', 'Fecha', 'Pagado'],
+      rows: pending
+          .map((p) => [
+                (p['student'] ?? '').toString(),
+                (p['product'] ?? '').toString(),
+                ((p['total'] as num?)?.toDouble() ?? 0).toStringAsFixed(2),
+                (p['date'] ?? '').toString(),
+                p['paid_at'] != null ? 'Sí' : 'No',
+              ])
+          .toList(),
+    ),
+  };
+}
+
 Future<void> exportBackupToExcel(BuildContext context) async {
   final confirmed = await showDialog<bool>(
     context: context,
@@ -226,48 +306,19 @@ Future<void> exportBackupToExcel(BuildContext context) async {
   final pending = data[3];
 
   final excel = Excel.createExcel();
-  final sheets = {
-    'Ventas': {
-      'headers': ['Producto', 'Precio', 'Cantidad', 'Total', 'Fecha', 'Estudiante', 'Método de pago'],
-      'rows': sales.map((s) => [
-        s['productName'] ?? '',
-        s['price']?.toString() ?? '',
-        s['quantity']?.toString() ?? '',
-        s['total']?.toString() ?? '',
-        s['date']?.toString() ?? '',
-        s['studentName'] ?? '',
-        s['paymentMethod'] ?? '',
-      ]).toList(),
-    },
-    'Alumnos': {
-      'headers': ['Nombre'],
-      'rows': students.map((s) => [s['name'] ?? '']).toList(),
-    },
-    'Productos': {
-      'headers': ['Nombre', 'Precio', 'Categoría', 'Icono'],
-      'rows': products.map((p) => [
-        p['name'] ?? '',
-        p['price']?.toString() ?? '',
-        p['category'] ?? '',
-        p['icon'] ?? '',
-      ]).toList(),
-    },
-    'Pendientes': {
-      'headers': ['Estudiante', 'Producto', 'Monto', 'Fecha', 'Pagado'],
-      'rows': pending.map((p) => [
-        p['studentName'] ?? '',
-        p['productName'] ?? '',
-        p['total']?.toString() ?? '',
-        p['date']?.toString() ?? '',
-        p['paidAt'] != null ? 'Sí' : 'No',
-      ]).toList(),
-    },
-  };
+  // Excel.createExcel() deja una hoja "Sheet1" vacia adelante.
+  excel.delete('Sheet1');
+  final sheets = buildBackupSheets(
+    sales: sales,
+    students: students,
+    products: products,
+    pending: pending,
+  );
 
   for (final entry in sheets.entries) {
     final sheet = excel[entry.key];
-    final h = entry.value['headers'] as List<String>;
-    final r = entry.value['rows'] as List<List<dynamic>>;
+    final h = entry.value.headers;
+    final r = entry.value.rows;
 
     final headerStyle = CellStyle(
       fontColorHex: ExcelColor.fromHexString('FFFFFFFF'),

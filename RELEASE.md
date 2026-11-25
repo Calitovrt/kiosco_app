@@ -1,7 +1,7 @@
 # Cómo publicar una versión
 
 Procedimiento para sacar una versión nueva y dejarla disponible en el descargador
-(https://usuario01-bit.github.io/kiosco_app/).
+(https://calitovrt.github.io/kiosco_app/).
 
 El target real es **Android**. La app se instala a mano en el celular, así que lo que se
 publica es el APK release.
@@ -82,7 +82,7 @@ $body = @{
 } | ConvertTo-Json
 
 $rel = Invoke-RestMethod -Method Post `
-  -Uri "https://api.github.com/repos/Usuario01-bit/kiosco_app/releases" `
+  -Uri "https://api.github.com/repos/Calitovrt/kiosco_app/releases" `
   -Headers $H -Body $body -ContentType "application/json"
 
 $up = $rel.upload_url -replace '\{\?name,label\}', '?name=app-release.apk'
@@ -96,7 +96,7 @@ Invoke-RestMethod -Method Post -Uri $up `
 Verificar que el release quedó como `latest`:
 
 ```powershell
-(Invoke-RestMethod -Uri "https://api.github.com/repos/Usuario01-bit/kiosco_app/releases/latest" -Headers $H).tag_name
+(Invoke-RestMethod -Uri "https://api.github.com/repos/Calitovrt/kiosco_app/releases/latest" -Headers $H).tag_name
 ```
 
 ## Paso 7 — Que la página publique la etiqueta nueva
@@ -118,8 +118,8 @@ de la versión en la página.
 ## Verificación final
 
 ```sh
-curl.exe -sIL -o NUL -w "%{http_code}`n" "https://github.com/Usuario01-bit/kiosco_app/releases/latest/download/app-release.apk"
+curl.exe -sIL -o NUL -w "%{http_code}`n" "https://github.com/Calitovrt/kiosco_app/releases/latest/download/app-release.apk"
 ```
 
-Tiene que dar **200**. Y abrir https://usuario01-bit.github.io/kiosco_app/ para confirmar
+Tiene que dar **200**. Y abrir https://calitovrt.github.io/kiosco_app/ para confirmar
 que muestra la versión nueva.

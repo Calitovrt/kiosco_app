@@ -38,6 +38,17 @@ Tarda ~60s. Verificar que diga:
 √ Built build\app\outputs\flutter-apk\app-release.apk (86.2MB)
 ```
 
+**Dejar siempre una copia en `build\app\outputs\apk\release\app-release.apk`.**
+Esa es la ubicación única y predecible: Flutter escribe en
+`flutter-apk\`, pero el APK que se instala o se comparte se toma de
+`apk\release\`. Crear el directorio si no existe.
+
+```powershell
+New-Item -ItemType Directory -Force -Path "build\app\outputs\apk\release" | Out-Null
+Copy-Item "build\app\outputs\flutter-apk\app-release.apk" `
+  -Destination "build\app\outputs\apk\release\app-release.apk" -Force
+```
+
 ## Paso 3 — Actualizar la etiqueta de la página
 
 En `docs/index.html`:

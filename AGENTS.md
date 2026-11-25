@@ -46,7 +46,7 @@ No usar `flutter build windows`: no hay toolchain de Visual Studio en la máquin
 
 ## Publicar una versión
 
-Ver `RELEASE.md`. Resumen: subir `version` en `pubspec.yaml` (versionCode +1) → `flutter build apk --release` → commit/tag/push → crear el release con la API y el asset `app-release.apk` → llevar `docs/index.html` a `master` (Pages sirve `master`/`docs`).
+Ver `RELEASE.md`. Resumen: subir `version` en `pubspec.yaml` (versionCode +1) → `flutter build apk --release` → **copiar el APK a `build/app/outputs/apk/release/app-release.apk`** (ubicación fija, siempre) → commit/tag/push → crear el release con la API y el asset `app-release.apk` → llevar `docs/index.html` a `master` (Pages sirve `master`/`docs`).
 
 ## Database
 

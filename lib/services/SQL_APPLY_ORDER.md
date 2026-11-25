@@ -26,6 +26,7 @@ sin aviso.
 | 12 | `drop_legacy_overloads.sql` | Borra las sobrecargas viejas sin `p_token` de `student_checkout`, `submit_payment_capture` y `get_student_captures`. Idempotente |
 | 13 | `sale_checkout_atomic.sql` | `sales.client_ref` + índice y `sale_checkout`: venta + stock + deuda en una transacción, idempotente |
 | 14 | `chat_messages.sql` | Tabla `messages` (chat alumno ↔ kiosco con adjuntos), RLS de admin y los RPC del alumno (`send_student_message`, `get_student_messages`, `mark_student_messages_read`) |
+| 15 | `search_hardening.sql` | `search_student_names` con mínimo de 3 caracteres y rate limit por IP; tabla `search_guard` |
 | — | `first_login.sql` | Nada: retirado. Correrlo ya no recrea el flujo viejo |
 | — | `upsert_pending.sql` | Nada: función revocada |
 

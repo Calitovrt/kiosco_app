@@ -109,12 +109,19 @@ SET search_path = 'public'
 AS $$
 DECLARE
   v_q TEXT := btrim(COALESCE(p_query, ''));
+  v_pattern TEXT;
 BEGIN
   -- Query vacia o de 1-2 letras: no devuelve nada en vez de devolver
   -- el padron. `RETURN` en una funcion RETURNS TABLE = conjunto vacio.
   IF length(v_q) < 3 THEN
     RETURN;
   END IF;
+
+  -- Neutralizar los comodines de LIKE. Sin esto, '%%%' pasaba el minimo de
+  -- 3 caracteres y devolvia el padron igual: el largo se medía sobre el
+  -- texto crudo, pero el patron resultante matcheaba todo.
+  v_q := replace(replace(replace(v_q, '\', '\\'), '%', '\%'), '_', '\_');
+  v_pattern := '%' || v_q || '%';
 
   IF NOT public._search_rate_ok(public._search_client_ip()) THEN
     RETURN;
@@ -124,7 +131,7 @@ BEGIN
     SELECT s.id, s.name
     FROM public.students s
     WHERE s.deleted IS NOT TRUE
-      AND s.name ILIKE '%' || v_q || '%'
+      AND s.name ILIKE v_pattern ESCAPE '\'
     ORDER BY s.name
     LIMIT 10;
 END;

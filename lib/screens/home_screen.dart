@@ -521,12 +521,21 @@ class _HomeScreenState
         labelBehavior: NavigationDestinationLabelBehavior.onlyShowSelected,
 
         onDestinationSelected:
-            (index) {
+            (index) async {
 
           setState(() {
 
             selectedIndex = index;
           });
+
+          // El badge del chat se recalcula contra la base al cambiar de
+          // pestaña: no depende solo de que llegue el evento de Realtime.
+          try {
+            final unread = await SupabaseService.instance.countUnreadConversations();
+            if (mounted) setState(() => pendingCaptures = unread);
+          } catch (_) {
+            // Si falla, se mantiene el valor anterior.
+          }
         },
 
         destinations: [

@@ -1083,6 +1083,17 @@ class SupabaseService {
     });
   }
 
+  /// Relectura puntual del hilo. El chat la usa despues de mandar un mensaje:
+  /// asi lo enviado aparece aunque Realtime no este habilitado para la tabla.
+  Future<List<Map<String, dynamic>>> getMessagesForStudent(String studentId) async {
+    final data = await _client
+        .from('messages')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('created_at', ascending: true);
+    return data;
+  }
+
   /// Marca leidos los mensajes que el alumno mando al kiosco.
   Future<void> markConversationReadForAdmin(String studentId) async {
     await _client
@@ -1091,5 +1102,16 @@ class SupabaseService {
         .eq('student_id', studentId)
         .eq('sender', 'alumno')
         .isFilter('read_at', null);
+  }
+
+  /// Cuenta alumnos con mensajes sin leer. Se usa para recalcular el badge
+  /// sin depender de que Realtime este habilitado para la tabla.
+  Future<int> countUnreadConversations() async {
+    final data = await _client
+        .from('messages')
+        .select('student_id')
+        .eq('sender', 'alumno')
+        .isFilter('read_at', null);
+    return data.map((m) => m['student_id'].toString()).toSet().length;
   }
 }

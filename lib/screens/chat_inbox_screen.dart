@@ -295,6 +295,14 @@ class _ChatThreadScreenState extends State<ChatThreadScreen> {
         imagePath: path,
       );
       if (!mounted) return;
+
+      // Relectura explicita: no dependemos de que llegue el evento de Realtime
+      // para ver lo que acabamos de mandar.
+      final fresh =
+          await SupabaseService.instance.getMessagesForStudent(widget.studentId);
+      if (!mounted) return;
+      setState(() => _messages = fresh);
+
       _ctrl.clear();
       setState(() {
         _selectedImage = null;

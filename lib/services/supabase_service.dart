@@ -1114,4 +1114,24 @@ class SupabaseService {
         .isFilter('read_at', null);
     return data.map((m) => m['student_id'].toString()).toSet().length;
   }
+
+  /// Relectura completa de los mensajes, con el nombre resuelto. La usa la
+  /// bandeja al volver de un hilo para que el contador de no leidos se
+  /// actualice aunque no llegue ningun evento de Realtime.
+  Future<List<Map<String, dynamic>>> getAllMessages() async {
+    final data = await _client
+        .from('messages')
+        .select('*')
+        .order('created_at', ascending: true);
+    try {
+      await ensureStudentNames();
+    } catch (_) {
+      // Sin nombres se muestra el fallback.
+    }
+    return data.map((m) {
+      final row = Map<String, dynamic>.from(m);
+      row['student'] = _studentNames[row['student_id']?.toString()] ?? 'Alumno';
+      return row;
+    }).toList();
+  }
 }

@@ -55,6 +55,19 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
     super.dispose();
   }
 
+  Future<void> _refresh() async {
+    try {
+      final data = await SupabaseService.instance.getAllMessages();
+      if (!mounted) return;
+      setState(() {
+        _conversations = _group(data);
+        _loading = false;
+      });
+    } catch (_) {
+      // Si falla, se mantiene lo que ya estaba en pantalla.
+    }
+  }
+
   List<_Conversation> _group(List<Map<String, dynamic>> data) {
     final byId = <String, _Conversation>{};
 
@@ -182,8 +195,8 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                       ],
                     ],
                   ),
-                  onTap: () {
-                    Navigator.push(
+                  onTap: () async {
+                    await Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => ChatThreadScreen(
@@ -192,6 +205,10 @@ class _ChatInboxScreenState extends State<ChatInboxScreen> {
                         ),
                       ),
                     );
+                    // Al volver del hilo se relee: el contador de no leidos
+                    // no depende de que llegue un evento de Realtime.
+                    if (!mounted) return;
+                    await _refresh();
                   },
                 );
               },

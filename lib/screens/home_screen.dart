@@ -46,6 +46,11 @@ class _HomeScreenState
   int selectedIndex = 0;
   int activeOrders = 0;
   int pendingCaptures = 0;
+
+  /// Refresco periodico del badge de mensajes. Cubre los casos en que el
+  /// contador cambia sin que llegue un evento de Realtime (por ejemplo al
+  /// volver de un hilo dentro de la misma pestaña).
+  Timer? _chatBadgeTimer;
   Set<String> _knownCaptureIds = {};
   bool _capturesReady = false;
   StreamSubscription? _ordersSub;
@@ -122,6 +127,11 @@ class _HomeScreenState
       setState(() => pendingCaptures = unreadStudents.length);
     });
 
+    _chatBadgeTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => _refreshChatBadge(),
+    );
+
     ThemeProvider.instance.addListener(_refresh);
   }
 
@@ -129,8 +139,18 @@ class _HomeScreenState
   void dispose() {
     _ordersSub?.cancel();
     _capturesSub?.cancel();
+    _chatBadgeTimer?.cancel();
     ThemeProvider.instance.removeListener(_refresh);
     super.dispose();
+  }
+
+  Future<void> _refreshChatBadge() async {
+    try {
+      final unread = await SupabaseService.instance.countUnreadConversations();
+      if (mounted) setState(() => pendingCaptures = unread);
+    } catch (_) {
+      // Si falla, se mantiene el valor anterior.
+    }
   }
 
   void _refresh() {
@@ -530,12 +550,7 @@ class _HomeScreenState
 
           // El badge del chat se recalcula contra la base al cambiar de
           // pestaña: no depende solo de que llegue el evento de Realtime.
-          try {
-            final unread = await SupabaseService.instance.countUnreadConversations();
-            if (mounted) setState(() => pendingCaptures = unread);
-          } catch (_) {
-            // Si falla, se mantiene el valor anterior.
-          }
+          _refreshChatBadge();
         },
 
         destinations: [

@@ -28,9 +28,17 @@ final ThemeData lightTheme = ThemeData(
     indicatorColor: const Color(0xFF4A90E2).withValues(alpha: 0.15),
     labelTextStyle: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
-        return const TextStyle(fontSize: 12, fontWeight: FontWeight.w600);
+        return const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.1,
+        );
       }
-      return TextStyle(fontSize: 12, color: Colors.grey.shade600);
+      return TextStyle(
+        fontSize: 9,
+        color: Colors.grey.shade600,
+        letterSpacing: -0.1,
+      );
     }),
   ),
   dialogTheme: DialogThemeData(
@@ -106,9 +114,18 @@ final ThemeData darkTheme = ThemeData(
     indicatorColor: const Color(0xFF4A90E2).withValues(alpha: 0.3),
     labelTextStyle: WidgetStateProperty.resolveWith((states) {
       if (states.contains(WidgetState.selected)) {
-        return const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.white);
+        return const TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          letterSpacing: -0.1,
+        );
       }
-      return TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.5));
+      return TextStyle(
+        fontSize: 9,
+        color: Colors.white.withValues(alpha: 0.5),
+        letterSpacing: -0.1,
+      );
     }),
   ),
   dialogTheme: DialogThemeData(

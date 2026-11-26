@@ -560,7 +560,7 @@ class _HomeScreenState
           NavigationDestination(icon: Icon(LucideIcons.users), label: StoreConfig.instance.entityPlural),
           NavigationDestination(icon: Icon(LucideIcons.package), label: 'Productos'),
           NavigationDestination(icon: Icon(LucideIcons.chartBar), label: 'Reportes'),
-          NavigationDestination(icon: Icon(LucideIcons.clock), label: 'Pendientes'),
+          NavigationDestination(icon: Icon(LucideIcons.clock), label: 'Fiados'),
           NavigationDestination(
             icon: Badge(
               isLabelVisible: pendingCaptures > 0,

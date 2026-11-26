@@ -948,11 +948,18 @@ class SupabaseService {
     await _client.auth.signOut();
   }
 
-  Future<bool> changePassword(String email, String oldPassword, String newPassword) async {
+  /// Cambia la contraseña del admin autenticado.
+  ///
+  /// No recibe el email a propósito: antes el llamador le pasaba el usuario
+  /// ("admin") y se comparaba contra `currentUser.email`
+  /// ("admin@kiosco.app"), así que la comparación nunca coincidía y la
+  /// pantalla decía "contraseña actual incorrecta" siempre.
+  Future<bool> changePassword(String oldPassword, String newPassword) async {
     try {
-      final currentUser = _client.auth.currentUser;
-      if (currentUser == null || currentUser.email != email) return false;
-      final response = await _client.auth.signInWithPassword(email: email, password: oldPassword);
+      final email = _client.auth.currentUser?.email;
+      if (email == null) return false;
+      final response = await _client.auth
+          .signInWithPassword(email: email, password: oldPassword);
       if (response.user == null) return false;
       await _client.auth.updateUser(UserAttributes(password: newPassword));
       return true;

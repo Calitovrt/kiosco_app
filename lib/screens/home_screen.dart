@@ -408,7 +408,6 @@ class _HomeScreenState
               }
               try {
                 final ok = await SupabaseService.instance.changePassword(
-                  widget.username,
                   oldCtrl.text,
                   newCtrl.text,
                 );

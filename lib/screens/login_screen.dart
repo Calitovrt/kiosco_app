@@ -1,8 +1,11 @@
-﻿import 'package:lucide_icons_flutter/lucide_icons.dart';
+﻿import 'dart:async';
+
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/env.dart';
+import '../services/login_guard_local.dart';
 import '../services/responsive.dart';
 import '../services/store_config.dart';
 import '../services/supabase_service.dart';
@@ -33,13 +36,51 @@ class _LoginScreenState
 
   String? errorMsg;
 
+  /// Bloqueo local por intentos fallidos. El login de admin va a Supabase
+  /// Auth, no a una RPC nuestra, asi que no hay donde contarlos del lado
+  /// del servidor.
+  Duration _locked = Duration.zero;
+  Timer? _lockTimer;
+
   @override
   void initState() {
 
     super.initState();
+
+    _loadLock();
+  }
+
+  Future<void> _loadLock() async {
+    final remaining = await LoginGuardLocal.instance.remainingLock();
+    if (!mounted) return;
+    setState(() => _locked = remaining);
+    if (remaining > Duration.zero) _startLockCountdown();
+  }
+
+  void _startLockCountdown() {
+    _lockTimer?.cancel();
+    _lockTimer = Timer.periodic(const Duration(seconds: 1), (t) async {
+      final remaining = await LoginGuardLocal.instance.remainingLock();
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _locked = remaining);
+      if (remaining <= Duration.zero) t.cancel();
+    });
   }
 
   Future<void> _login() async {
+
+    // Evita llamadas concurrentes: con Enter repetido se disparaban N
+    // intentos en paralelo contra Supabase Auth.
+    if (loading) return;
+
+    if (_locked > Duration.zero) {
+      setState(() => errorMsg =
+          'Demasiados intentos. Esperá ${_locked.inSeconds} s.');
+      return;
+    }
 
     final username =
     usernameCtrl.text.trim();
@@ -78,6 +119,10 @@ class _LoginScreenState
 
       if (user != null) {
 
+        await LoginGuardLocal.instance.clear();
+
+        if (!mounted) return;
+
         Navigator.pushReplacement(
 
           context,
@@ -90,10 +135,17 @@ class _LoginScreenState
         );
       } else {
 
+        final lock = await LoginGuardLocal.instance.registerFailure();
+
+        if (!mounted) return;
+
+        if (lock > Duration.zero) _startLockCountdown();
+
         setState(() {
 
-          errorMsg =
-          'Usuario o contraseña incorrectos';
+          errorMsg = lock > Duration.zero
+              ? 'Demasiados intentos. Esperá ${lock.inSeconds} s.'
+              : 'Usuario o contraseña incorrectos';
 
           loading = false;
         });
@@ -112,6 +164,8 @@ class _LoginScreenState
 
   @override
   void dispose() {
+
+    _lockTimer?.cancel();
 
     usernameCtrl.dispose();
 
@@ -496,7 +550,7 @@ class _LoginScreenState
                             child: ElevatedButton(
 
                               onPressed:
-                                  loading
+                                  loading || _locked > Duration.zero
                                       ? null
                                       : _login,
 

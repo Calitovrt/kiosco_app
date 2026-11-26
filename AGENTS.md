@@ -53,7 +53,7 @@ Ver `RELEASE.md`. Resumen: subir `version` en `pubspec.yaml` (versionCode +1) �
 - Supabase PostgreSQL. Sin migraciones locales — el schema se maneja en la consola de Supabase.
 - `SupabaseService.instance` singleton para toda interacción con BD.
 - Fecha en formato ISO `yyyy-MM-dd` en `sales`/`pending` (helper `toISODate()`). La `dd/mm/yyyy` es solo de presentación.
-- Admin por defecto: `admin` / `admin123`.
+- Admin: el usuario se mapea a `usuario@kiosco.app` en el login. La contraseña se gestiona en Supabase Auth y **no se documenta acá**: el repo es público.
 
 ## Gotchas
 

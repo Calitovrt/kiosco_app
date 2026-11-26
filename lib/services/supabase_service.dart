@@ -429,6 +429,33 @@ class SupabaseService {
     });
   }
 
+  /// Catalogo para la app del alumno.
+  ///
+  /// Lee la vista `products_public` (columnas explicitas): anon ya no tiene
+  /// acceso a la tabla `products`, asi que una columna nueva como `cost` no
+  /// se publica sola. Una vista no soporta Realtime, por eso el catalogo del
+  /// alumno se refresca por polling.
+  Future<List<Map<String, dynamic>>> getPublicProducts() async {
+    List<Map<String, dynamic>> data;
+    try {
+      data = await _client
+          .from('products_public')
+          .select()
+          .order('category')
+          .order('name');
+    } catch (_) {
+      // La vista puede no existir todavia (SQL sin aplicar). Se cae a la
+      // tabla para que la app funcione antes y despues de la migracion.
+      data = await _client
+          .from('products')
+          .select()
+          .order('category')
+          .order('name');
+    }
+    LocalCacheService.instance.cacheProducts(data);
+    return data;
+  }
+
   // =====================================================
   // SALES
   // =====================================================

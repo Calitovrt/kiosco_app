@@ -25,7 +25,7 @@ class _StudentCatalogScreenState extends State<StudentCatalogScreen> {
   final _storage = const FlutterSecureStorage();
   List<Map<String, dynamic>> products = [];
   final Map<String, int> cart = {};
-  StreamSubscription? _productsSub;
+  Timer? _productsTimer;
 
   @override
   void initState() {
@@ -38,16 +38,29 @@ class _StudentCatalogScreenState extends State<StudentCatalogScreen> {
     if (cached.isNotEmpty && mounted) {
       setState(() => products = cached);
     }
-    _productsSub = SupabaseService.instance.streamProducts().listen((data) {
-      if (mounted) setState(() => products = data);
-    }, onError: (_) {
+    await _loadProducts();
+
+    // El alumno lee la vista `products_public`, que no soporta Realtime:
+    // se refresca por polling mientras la pantalla esta abierta.
+    _productsTimer = Timer.periodic(
+      const Duration(seconds: 25),
+      (_) => _loadProducts(),
+    );
+  }
+
+  Future<void> _loadProducts() async {
+    try {
+      final data = await SupabaseService.instance.getPublicProducts();
+      if (!mounted) return;
+      setState(() => products = data);
+    } catch (_) {
       if (mounted && products.isEmpty) setState(() => products = []);
-    });
+    }
   }
 
   @override
   void dispose() {
-    _productsSub?.cancel();
+    _productsTimer?.cancel();
     super.dispose();
   }
 

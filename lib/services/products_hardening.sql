@@ -52,17 +52,17 @@ FROM public.products;
 GRANT SELECT ON public.products_public TO anon, authenticated;
 
 -- =====================================================
--- FASE 2 — cerrar la tabla (NO correr todavia)
+-- FASE 2 — cerrar la tabla
 -- =====================================================
 --
--- Descomentar cuando ningun celular del kiosco use una version anterior
--- a la 1.6.3. Si se corre antes, esas versiones ven el catalogo vacio.
+-- Aplicada el 2026-11-25, con la 1.6.5 publicada como latest.
 --
--- DROP POLICY IF EXISTS products_anon_read ON public.products;
---
--- Para saber si ya se puede: revisar en Supabase Auth > Users que no haya
--- sesiones viejas, o simplemente esperar unos dias despues de avisar.
+-- A partir de aca, cualquier version anterior a la 1.6.3 ve el catalogo
+-- vacio, porque lee la tabla directo. Si aparece un celular viejo en el
+-- kiosco, la solucion es actualizarlo.
 -- =====================================================
+
+DROP POLICY IF EXISTS products_anon_read ON public.products;
 
 -- =====================================================
 -- VERIFICACION

@@ -234,39 +234,61 @@ class _ReportsScreenState
             // TOP CARDS (responsive wrap)
             // =================================================
 
-            Wrap(
-              spacing: R.sp(context, 16),
-              runSpacing: R.sp(context, 16),
+            // =================================================
+            // TOP CARDS: tarjeta principal + grilla 2x2
+            // =================================================
+
+            _heroCard(
+              title: 'Ventas Totales',
+              value: '\$${totalSales.toStringAsFixed(2)}',
+              color: Colors.blue,
+              icon: Icons.attach_money,
+            ),
+
+            SizedBox(height: R.sp(context, 16)),
+
+            Row(
               children: [
-                _miniCard(
-                  title: 'Ventas Totales',
-                  value: '\$${totalSales.toStringAsFixed(2)}',
-                  color: Colors.blue,
-                  icon: Icons.attach_money,
+                Expanded(
+                  child: _miniCard(
+                    title: 'Transacciones',
+                    value: '$totalTransactions',
+                    color: Colors.orange,
+                    icon: LucideIcons.receipt,
+                  ),
                 ),
-                _miniCard(
-                  title: 'Transacciones',
-                  value: '$totalTransactions',
-                  color: Colors.orange,
-                  icon: LucideIcons.receipt,
+                SizedBox(width: R.sp(context, 16)),
+                Expanded(
+                  child: _miniCard(
+                    title: 'Pendientes',
+                    value: '\$${pendienteTotal.toStringAsFixed(2)}',
+                    color: Colors.red,
+                    icon: Icons.warning_rounded,
+                  ),
                 ),
-                _miniCard(
-                  title: 'Pendientes',
-                  value: '\$${pendienteTotal.toStringAsFixed(2)}',
-                  color: Colors.red,
-                  icon: Icons.warning_rounded,
+              ],
+            ),
+
+            SizedBox(height: R.sp(context, 16)),
+
+            Row(
+              children: [
+                Expanded(
+                  child: _miniCard(
+                    title: 'Recreo 1',
+                    value: '\$${recreo1Total.toStringAsFixed(2)}',
+                    color: Colors.purple,
+                    icon: Icons.schedule,
+                  ),
                 ),
-                _miniCard(
-                  title: 'Recreo 1',
-                  value: '\$${recreo1Total.toStringAsFixed(2)}',
-                  color: Colors.purple,
-                  icon: Icons.schedule,
-                ),
-                _miniCard(
-                  title: 'Recreo 2',
-                  value: '\$${recreo2Total.toStringAsFixed(2)}',
-                  color: Colors.teal,
-                  icon: LucideIcons.clock,
+                SizedBox(width: R.sp(context, 16)),
+                Expanded(
+                  child: _miniCard(
+                    title: 'Recreo 2',
+                    value: '\$${recreo2Total.toStringAsFixed(2)}',
+                    color: Colors.teal,
+                    icon: LucideIcons.clock,
+                  ),
                 ),
               ],
             ),
@@ -352,20 +374,11 @@ class _ReportsScreenState
                         BarChartAlignment
                             .spaceAround,
 
-                        maxY:
+                        minY: 0,
 
-                        [
-                          efectivoTotal,
-                          yappyTotal,
-                          pendienteTotal
-                        ].reduce(
-                              (a, b) =>
-                          a > b
-                              ? a
-                              : b,
-                        ) +
+                        maxY: _chartMaxY,
 
-                            20,
+                        barTouchData: BarTouchData(enabled: false),
 
                         barGroups: [
 
@@ -450,8 +463,24 @@ class _ReportsScreenState
 
                             sideTitles: SideTitles(
                               showTitles: true,
-                              reservedSize: 60,
-                              interval: 20,
+                              reservedSize: 52,
+                              interval: _chartInterval,
+                              getTitlesWidget: (value, meta) {
+                                if (value == meta.max) {
+                                  return const SizedBox.shrink();
+                                }
+                                return Text(
+                                  '\$${value.toStringAsFixed(0)}',
+                                  style: TextStyle(
+                                    fontSize: R.fs(context, 11),
+                                    color: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.color
+                                        ?.withValues(alpha: 0.6),
+                                  ),
+                                );
+                              },
                             ),
                           ),
 
@@ -507,9 +536,16 @@ class _ReportsScreenState
                           show: false,
                         ),
 
-                        gridData:
-                        const FlGridData(
-                          show: false,
+                        gridData: FlGridData(
+                          show: true,
+                          drawVerticalLine: false,
+                          horizontalInterval: _chartInterval,
+                          getDrawingHorizontalLine: (value) => FlLine(
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withValues(alpha: 0.25),
+                            strokeWidth: 1,
+                          ),
                         ),
                       ),
                     ),
@@ -753,6 +789,82 @@ class _ReportsScreenState
   // MINI CARD (compact, wrap-friendly)
   // =====================================================
 
+  /// Escala del eje Y según el dato real, no un +20 arbitrario.
+  /// Con todo en 0 devuelve 10 para que el eje tenga sentido igual.
+  double get _chartMaxY {
+    final maxValue = [efectivoTotal, yappyTotal, pendienteTotal]
+        .reduce((a, b) => a > b ? a : b);
+    if (maxValue <= 0) return 10;
+    return (maxValue * 1.25).ceilToDouble();
+  }
+
+  double get _chartInterval => _chartMaxY / 4;
+
+  Widget _heroCard({
+    required String title,
+    required String value,
+    required Color color,
+    required IconData icon,
+  }) {
+    final muted = Theme.of(context)
+        .textTheme
+        .bodyMedium
+        ?.color
+        ?.withValues(alpha: 0.6);
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(R.sp(context, 20)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: EdgeInsets.all(R.sp(context, 12)),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(icon, color: color, size: R.sp(context, 28)),
+          ),
+          SizedBox(width: R.sp(context, 14)),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: R.fs(context, 13),
+                    color: muted,
+                  ),
+                ),
+                SizedBox(height: R.sp(context, 4)),
+                Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: R.fs(context, 34),
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _miniCard({
     required String title,
     required String value,
@@ -760,7 +872,6 @@ class _ReportsScreenState
     required IconData icon,
   }) {
     return Container(
-      width: (MediaQuery.of(context).size.width - R.sp(context, 48) - R.sp(context, 16)) / 2,
       padding: EdgeInsets.all(R.sp(context, 14)),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
